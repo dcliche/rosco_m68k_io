@@ -1,40 +1,25 @@
-/*  PS2Keyboard library example
-
-  PS2Keyboard now requries both pins specified for begin()
-
-  keyboard.begin(data_pin, irq_pin);
-
-  Valid irq pins:
-     Arduino Uno:  2, 3
-     Arduino Due:  All pins, except 13 (LED)
-     Arduino Mega: 2, 3, 18, 19, 20, 21
-     Teensy 2.0:   All pins, except 13 (LED)
-     Teensy 2.0:   5, 6, 7, 8
-     Teensy 1.0:   0, 1, 2, 3, 4, 6, 7, 16
-     Teensy++ 2.0: 0, 1, 2, 3, 18, 19, 36, 37
-     Teensy++ 1.0: 0, 1, 2, 3, 18, 19, 36, 37
-     Sanguino:     2, 10, 11
-
-  for more information you can read the original wiki in arduino.cc
-  at http://www.arduino.cc/playground/Main/PS2Keyboard
-  or http://www.pjrc.com/teensy/td_libs_PS2Keyboard.html
-
-  Like the Original library and example this is under LGPL license.
-
-  Modified by Cuninganreset@gmail.com on 2010-03-22
-  Modified by Paul Stoffregen <paul@pjrc.com> June 2010
+/* 
+    Rosco m68k I/O interface
 */
 
 #include "ps2_keyboard.h"
+#include "ps2_mouse.h"
 
-const int ps2_data_pin = 4;
-const int ps2_clk_pin = 3;
+const int ps2_keyboard_data_pin = 4;
+const int ps2_keyboard_clk_pin = 2;
+
+const int ps2_mouse_data_pin = 5;
+const int ps2_mouse_clk_pin = 3;
 
 const int rosco_mosi = 51;
 const int rosco_miso = 50;
 const int rosco_sck = 52;
 
+bool is_first_pass = true;
+char last_mstat, last_mx, last_my;
+
 PS2Keyboard keyboard;
+PS2Mouse mouse;
 
 void setup()
 {
@@ -43,14 +28,20 @@ void setup()
     pinMode(rosco_miso, OUTPUT);
     pinMode(rosco_sck, INPUT);
 
-    delay(1000);
-    keyboard.begin(ps2_data_pin, ps2_clk_pin);
+    //delay(1000);
+    keyboard.begin(ps2_keyboard_data_pin, ps2_keyboard_clk_pin);
+    mouse.begin(ps2_mouse_data_pin, ps2_mouse_clk_pin);
+
     Serial.begin(9600);
     Serial.println("The rosco_m68k I/O interface is ready.");
 }
 
 void send_bit(int b)
 {
+    // wait until sck low
+    while (digitalRead(rosco_sck) != LOW)
+        ;
+
     // wait until sck high
     while (digitalRead(rosco_sck) != HIGH)
         ;
@@ -60,9 +51,11 @@ void send_bit(int b)
     // wait until sck low
     while (digitalRead(rosco_sck) != LOW)
         ;
+
+    digitalWrite(rosco_miso, LOW);
 }
 
-void send_char(char c)
+void send_byte(unsigned char c)
 {
     // send start bit
     send_bit(1);
@@ -76,63 +69,31 @@ void send_char(char c)
 
 void loop()
 {
-    char c = -1;
+    // Keyboard
+    unsigned char scancode = 0;
+    scancode = keyboard.read();
 
-    if (keyboard.available())
+    if (scancode)
     {
-
-        // read the next key
-        c = keyboard.read();
-
-        // check for some of the special keys
-        if (c == PS2_ENTER)
-        {
-            Serial.println();
-        }
-        else if (c == PS2_TAB)
-        {
-            Serial.print("[Tab]");
-        }
-        else if (c == PS2_ESC)
-        {
-            Serial.print("[ESC]");
-        }
-        else if (c == PS2_PAGEDOWN)
-        {
-            Serial.print("[PgDn]");
-        }
-        else if (c == PS2_PAGEUP)
-        {
-            Serial.print("[PgUp]");
-        }
-        else if (c == PS2_LEFTARROW)
-        {
-            Serial.print("[Left]");
-        }
-        else if (c == PS2_RIGHTARROW)
-        {
-            Serial.print("[Right]");
-        }
-        else if (c == PS2_UPARROW)
-        {
-            Serial.print("[Up]");
-        }
-        else if (c == PS2_DOWNARROW)
-        {
-            Serial.print("[Down]");
-        }
-        else if (c == PS2_DELETE)
-        {
-            Serial.print("[Del]");
-        }
+        send_byte('K');
+        send_byte(scancode);
     }
 
-    if (c > 0)
+    // Mouse
+    char mstat, mx, my;
+    mouse.read(&mstat, &mx, &my);
+
+    if (is_first_pass || mstat != last_mstat || mx != last_mx || my != last_my)
     {
-        send_char(c);
+        send_byte('M');
+        send_byte(mstat);
+        send_byte(mx);
+        send_byte(my);
+
+        last_mstat = mstat;
+        last_mx = mx;
+        last_my = my;
     }
-    else
-    {
-        send_char(0);
-    }
+
+    is_first_pass = false;
 }
